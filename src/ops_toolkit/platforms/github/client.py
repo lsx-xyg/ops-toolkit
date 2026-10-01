@@ -1,77 +1,65 @@
-"""GitHub API 封装。以后加任何 GitHub 功能都复用这里。"""
-import requests
-from ...core.http import build_headers
+"""GitHub API 封装（基于 PyGithub）。
 
-BASE = "https://api.github.com"
+以后加任何 GitHub 功能都复用这里的方法。
+"""
+from github import Github, Auth
+from github.GithubException import GithubException
 
 
 class GitHubClient:
     token_env = "GITHUB_TOKEN"
 
     def __init__(self, token):
-        self.token = token
-        self.headers = build_headers(token, extra={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
+        self._gh = Github(auth=Auth.Token(token))
+
+    # ---------- 通用 ----------
+    def get_repo(self, full_name):
+        return self._gh.get_repo(full_name)
 
     def list_repos(self):
-        repos = []
-        page = 1
-        while True:
-            r = requests.get(
-                f"{BASE}/user/repos", headers=self.headers,
-                params={"per_page": 100, "page": page, "sort": "updated"},
-            )
-            if r.status_code == 401:
-                raise Exception("GitHub Token 无效")
-            r.raise_for_status()
-            d = r.json()
-            if not d:
-                break
-            repos.extend((x["full_name"], x["full_name"]) for x in d)
-            if len(d) < 100:
-                break
-            page += 1
-        return repos
+        """返回 [(full_name, full_name), ...]"""
+        user = self._gh.get_user()
+        return [(r.full_name, r.full_name) for r in user.get_repos()]
 
-    # -------- Release --------
+    # ---------- Release ----------
     def list_releases(self, full_name):
-        owner, repo = full_name.split("/", 1)
-        out = []
-        page = 1
-        while True:
-            r = requests.get(
-                f"{BASE}/repos/{owner}/{repo}/releases", headers=self.headers,
-                params={"per_page": 100, "page": page},
-            )
-            r.raise_for_status()
-            d = r.json()
-            if not d:
-                break
-            out.extend(d)
-            if len(d) < 100:
-                break
-            page += 1
-        return out
+        """返回 PyGithub 的 GitRelease 列表。"""
+        repo = self.get_repo(full_name)
+        return list(repo.get_releases())
 
-    def delete_release(self, full_name, release_id):
-        owner, repo = full_name.split("/", 1)
-        r = requests.delete(f"{BASE}/repos/{owner}/{repo}/releases/{release_id}",
-                            headers=self.headers)
-        if r.status_code not in (200, 204):
-            return False, f"[{r.status_code}] {r.text[:200]}"
-        return True, None
-
-    def delete_tag(self, full_name, tag):
-        owner, repo = full_name.split("/", 1)
-        r = requests.delete(f"{BASE}/repos/{owner}/{repo}/git/refs/tags/{tag}",
-                            headers=self.headers)
-        if r.status_code in (200, 204, 422):
+    def delete_release(self, release_obj):
+        """传 PyGithub 的 GitRelease 对象。"""
+        try:
+            release_obj.delete_release()
             return True, None
-        return False, f"[{r.status_code}] {r.text[:200]}"
+        except GithubException as e:
+            return False, _fmt_err(e)
 
-    # -------- 未来可加：workflow runs / packages / branches / issues --------
-    # def list_workflow_runs(self, full_name): ...
-    # def delete_workflow_run(self, full_name, run_id): ...
-    # def list_packages(self, full_name): ...
+    def delete_tag(self, full_name, tag_name):
+        try:
+            repo = self.get_repo(full_name)
+            ref = repo.get_git_ref(f"tags/{tag_name}")
+            ref.delete()
+            return True, None
+        except GithubException as e:
+            # 404: tag 不存在也算成功
+            if e.status == 404:
+                return True, None
+            return False, _fmt_err(e)
+
+    # ---------- 未来扩展点 ----------
+    # def list_workflow_runs(self, full_name):
+    #     return list(self.get_repo(full_name).get_workflow_runs())
+    #
+    # def delete_workflow_run(self, run_obj):
+    #     run_obj.delete()
+    #
+    # def list_packages(self, org_or_user):
+    #     ...
+
+
+def _fmt_err(e: GithubException) -> str:
+    msg = ""
+    if isinstance(e.data, dict):
+        msg = e.data.get("message", "")
+    return f"[{e.status}] {msg or str(e)}"

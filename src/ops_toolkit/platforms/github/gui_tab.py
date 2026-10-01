@@ -12,19 +12,18 @@ class GitHubTab(PlatformTab):
     title = "GitHub"
     token_label = "GitHub Token:"
     token_env = "GITHUB_TOKEN"
+    group_label = "选择仓库:"
 
     def make_client(self, token):
         return GitHubClient(token)
 
+    def list_groups(self, client):
+        return client.list_repos()      # [(full_name, full_name), ...]
+
     def build_actions(self, parent):
-        # ---- 功能区 1：清理 Release ----
+        # 功能区 1：清理 Release
         self._build_prune_releases(parent)
-
-        # ---- 功能区 2：清理 Actions 运行记录（示例，未来实现） ----
-        # self._build_prune_workflow_runs(parent)
-
-        # ---- 功能区 3：清理 Packages ----
-        # self._build_prune_packages(parent)
+        # 未来加：self._build_prune_workflow_runs(parent)
 
     def _build_prune_releases(self, parent):
         box = ttk.LabelFrame(parent, text="清理旧 Release", padding="6")
@@ -41,8 +40,8 @@ class GitHubTab(PlatformTab):
         self.workers_entry.grid(row=0, column=3, sticky=tk.W)
 
         self.delete_tag_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(box, text="同时删除 Git tag", variable=self.delete_tag_var)\
-            .grid(row=0, column=4, padx=12)
+        ttk.Checkbutton(box, text="同时删除 Git tag",
+                        variable=self.delete_tag_var).grid(row=0, column=4, padx=12)
 
         ttk.Button(box, text="执行", command=self._run_prune_releases)\
             .grid(row=0, column=5, padx=8)
@@ -58,10 +57,15 @@ class GitHubTab(PlatformTab):
             return
         delete_tags = self.delete_tag_var.get()
 
+        target_ids = self.selected_group_ids()   # None 或 [full_name]
+        if target_ids is not None:
+            self.bus.log(f"仅处理选中的仓库。")
+
         def w():
             try:
                 stats = prune_releases.run(
                     self.client, keep, workers, self.bus.log,
+                    only_repo_ids=target_ids,
                     delete_tags=delete_tags,
                 )
                 self.bus.log(f"\n完成：保留 {stats['kept']}，"

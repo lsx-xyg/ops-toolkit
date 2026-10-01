@@ -12,12 +12,15 @@ class VercelTab(PlatformTab):
     title = "Vercel"
     token_label = "Vercel Token:"
     token_env = "VERCEL_TOKEN"
+    group_label = "选择项目:"
 
     def make_client(self, token):
         return VercelClient(token)
 
+    def list_groups(self, client):
+        return client.list_projects()   # 返回 [(id, name), ...]
+
     def build_actions(self, parent):
-        # ---- 功能区 1：清理部署 ----
         box = ttk.LabelFrame(parent, text="清理旧部署", padding="6")
         box.pack(fill=tk.X, pady=4)
 
@@ -33,8 +36,6 @@ class VercelTab(PlatformTab):
 
         ttk.Button(box, text="执行", command=self._run_prune).grid(row=0, column=4, padx=12)
 
-        # 未来加新功能：在这里再加一个 LabelFrame 和按钮即可
-
     def _run_prune(self):
         if not self.require_client():
             return
@@ -45,10 +46,15 @@ class VercelTab(PlatformTab):
             messagebox.showerror("错误", "参数必须是整数")
             return
 
+        target_ids = self.selected_group_ids()   # None 或 [id]
+        if target_ids is not None:
+            self.bus.log(f"仅处理选中的项目。")
+
         def w():
             try:
                 stats = prune_deployments.run(
                     self.client, keep, workers, self.bus.log,
+                    only_project_ids=target_ids,
                 )
                 self.bus.log(f"\n完成：保留 {stats['kept']}，"
                              f"删除 {stats['deleted']}，失败 {stats['failed']}")
