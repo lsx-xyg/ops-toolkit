@@ -13,7 +13,7 @@ Write-Host "==> 清理旧产物"
 Remove-Item -Recurse -Force build, dist, "$NAME.spec" -ErrorAction SilentlyContinue
 
 Write-Host "==> 打包"
-uv run pyinstaller --onefile --windowed --name $NAME src/ops_toolkit/app.py
+uv run pyinstaller --onefile --windowed --name $NAME run.py
 
 Write-Host ""
 Write-Host "==> 完成，产物在: dist/"
